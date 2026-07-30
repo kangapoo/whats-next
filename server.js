@@ -85,15 +85,33 @@ Respond with ONLY a JSON array, no markdown, no other text:
     },
     body: JSON.stringify({
       model: ANTHROPIC_MODEL,
-      max_tokens: 1024,
+      max_tokens: 1500,
       messages: [{ role: "user", content: prompt }],
     }),
   });
-  if (!res.ok) throw new Error(`anthropic ${res.status}: ${await res.text()}`);
+
+  if (!res.ok) {
+    // Surface the real reason (bad key, no credit, wrong model, rate limit, ...) in plain-ish text.
+    let detail = "";
+    try {
+      const err = await res.json();
+      detail = err?.error?.message || JSON.stringify(err);
+    } catch { detail = await res.text().catch(() => ""); }
+    throw new Error(`The AI service refused the request (error ${res.status}). ${detail}`.slice(0, 300));
+  }
+
   const data = await res.json();
   const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
-  const list = extractJSON(text);
-  return Array.isArray(list) ? list.slice(0, limit) : [];
+  let parsed = extractJSON(text);
+  // Accept a bare array, or an object that contains an array (some models wrap it).
+  let list = Array.isArray(parsed) ? parsed
+    : (parsed && typeof parsed === "object"
+        ? Object.values(parsed).find((v) => Array.isArray(v)) || null
+        : null);
+  if (!Array.isArray(list) || list.length === 0) {
+    throw new Error(`The AI replied but not with a usable list. It said: "${(text || "").trim().slice(0, 160)}"`);
+  }
+  return list.slice(0, limit);
 }
 
 // ---------- 2. ratings (OMDb) ----------
@@ -176,7 +194,6 @@ app.post("/api/discover", async (req, res) => {
     let guidance = historyPrompt(log);
     if (exclude.length) guidance += `Already suggested this session — do NOT repeat these: ${exclude.join("; ")}.\n`;
     const recs = await recommend(loved, countryName, limit, guidance);
-    if (recs.length === 0) return res.status(502).json({ error: "The recommender returned nothing. Try again." });
 
     const skip = new Set([...Object.keys(log), ...exclude.map(normTitle)]);
     const fresh = recs.filter((r) => !skip.has(normTitle(r.title))); // never repeat watched or already-shown
@@ -208,7 +225,7 @@ app.post("/api/discover", async (req, res) => {
     });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "Something broke while building recommendations. Check server logs." });
+    res.status(502).json({ error: e.message || "Something broke while building recommendations." });
   }
 });
 
