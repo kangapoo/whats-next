@@ -52,6 +52,11 @@ function extractJSON(text) {
   try { return JSON.parse(cand); } catch {}
   const end = Math.max(cand.lastIndexOf("}"), cand.lastIndexOf("]"));
   if (end > -1) { try { return JSON.parse(cand.slice(0, end + 1)); } catch {} }
+  // Salvage a truncated array: keep everything up to the last COMPLETE object and close the bracket.
+  if (cand[0] === "[") {
+    const lastObj = cand.lastIndexOf("}");
+    if (lastObj > -1) { try { return JSON.parse(cand.slice(0, lastObj + 1) + "]"); } catch {} }
+  }
   return null;
 }
 
@@ -85,7 +90,7 @@ Respond with ONLY a JSON array, no markdown, no other text:
     },
     body: JSON.stringify({
       model: ANTHROPIC_MODEL,
-      max_tokens: 1500,
+      max_tokens: 4096,
       messages: [{ role: "user", content: prompt }],
     }),
   });
@@ -227,6 +232,40 @@ app.post("/api/discover", async (req, res) => {
     console.error(e);
     res.status(502).json({ error: e.message || "Something broke while building recommendations." });
   }
+});
+
+app.get("/api/diag", async (_req, res) => {
+  const out = {
+    anthropic: { keySaved: !!ANTHROPIC_API_KEY },
+    streaming: { keySaved: STREAMING_PROVIDER === "motn" ? !!MOTN_API_KEY : !!RAPIDAPI_KEY },
+    omdb: {},
+  };
+  try {
+    if (!OMDB_API_KEY) {
+      out.omdb = { working: false, note: "No OMDb key is saved on the server." };
+    } else {
+      const u = new URL("https://www.omdbapi.com/");
+      u.searchParams.set("apikey", OMDB_API_KEY);
+      u.searchParams.set("t", "The Matrix");
+      u.searchParams.set("y", "1999");
+      const r = await fetch(u);
+      const d = await r.json();
+      if (d.Response === "False") {
+        out.omdb = { working: false, omdbSays: d.Error || "unknown error" };
+      } else {
+        out.omdb = {
+          working: true,
+          testedWith: "The Matrix (1999)",
+          imdb: d.imdbRating || null,
+          rottenTomatoes: (d.Ratings || []).find((x) => x.Source === "Rotten Tomatoes")?.Value || "not listed for this film",
+          metacritic: d.Metascore || null,
+        };
+      }
+    }
+  } catch (e) {
+    out.omdb = { working: false, error: String(e.message) };
+  }
+  res.json(out);
 });
 
 app.get("/api/health", (_req, res) => {
