@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: what-next
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      # Set these three in the Render dashboard — sync:false keeps them out of the repo.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OMDB_API_KEY
+        sync: false
+      - key: RAPIDAPI_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-5
+      - key: STREAMING_PROVIDER
+        value: rapidapi
