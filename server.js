@@ -98,15 +98,12 @@ async function omdbByImdb(imdbID) {
     const u = new URL("https://www.omdbapi.com/");
     u.searchParams.set("apikey", OMDB_API_KEY);
     u.searchParams.set("i", imdbID);
-    u.searchParams.set("tomatoes", "true"); // legacy field that carries a Tomatometer for some titles
     const r = await fetch(u);
     const d = await r.json();
     if (d.Response === "False") return null;
-    let rt = pctFromRatings(d.Ratings, "Rotten Tomatoes");
-    if (rt == null && d.tomatoMeter && d.tomatoMeter !== "N/A") { const n = Number(d.tomatoMeter); if (!isNaN(n)) rt = n; }
     return {
       imdb: d.imdbRating && d.imdbRating !== "N/A" ? Number(d.imdbRating) : null,
-      rtCritics: rt,
+      rtCritics: pctFromRatings(d.Ratings, "Rotten Tomatoes"),
       metascore: d.Metascore && d.Metascore !== "N/A" ? Number(d.Metascore) : null,
       poster: d.Poster && d.Poster !== "N/A" ? d.Poster : null,
       plot: d.Plot && d.Plot !== "N/A" ? d.Plot : null,
