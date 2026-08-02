@@ -86,6 +86,7 @@ async function tmdbSeedRecs(seedTitle) {
 }
 
 // ---------- OMDb: IMDb + Rotten Tomatoes ----------
+const omdbCache = new Map(); // avoid re-spending the daily OMDb quota on titles we've already looked up
 function pctFromRatings(ratings, source) {
   const r = (ratings || []).find((x) => x.Source === source);
   if (!r) return null;
@@ -94,6 +95,8 @@ function pctFromRatings(ratings, source) {
 }
 async function omdbByImdb(imdbID) {
   if (!OMDB_API_KEY || !imdbID) return null;
+  const ck = "i:" + imdbID;
+  if (omdbCache.has(ck)) return omdbCache.get(ck);
   try {
     const u = new URL("https://www.omdbapi.com/");
     u.searchParams.set("apikey", OMDB_API_KEY);
@@ -101,18 +104,22 @@ async function omdbByImdb(imdbID) {
     const r = await fetch(u);
     const d = await r.json();
     if (d.Response === "False") return null;
-    return {
+    const result = {
       imdb: d.imdbRating && d.imdbRating !== "N/A" ? Number(d.imdbRating) : null,
       rtCritics: pctFromRatings(d.Ratings, "Rotten Tomatoes"),
       metascore: d.Metascore && d.Metascore !== "N/A" ? Number(d.Metascore) : null,
       poster: d.Poster && d.Poster !== "N/A" ? d.Poster : null,
       plot: d.Plot && d.Plot !== "N/A" ? d.Plot : null,
     };
+    omdbCache.set(ck, result);
+    return result;
   } catch { return null; }
 }
 
 async function omdbByTitle(title, year, media) {
   if (!OMDB_API_KEY || !title) return null;
+  const ck = "t:" + title + ":" + (year || "") + ":" + (media || "");
+  if (omdbCache.has(ck)) return omdbCache.get(ck);
   try {
     const u = new URL("https://www.omdbapi.com/");
     u.searchParams.set("apikey", OMDB_API_KEY);
@@ -123,13 +130,15 @@ async function omdbByTitle(title, year, media) {
     const r = await fetch(u);
     const d = await r.json();
     if (d.Response === "False") return null;
-    return {
+    const result = {
       imdb: d.imdbRating && d.imdbRating !== "N/A" ? Number(d.imdbRating) : null,
       rtCritics: pctFromRatings(d.Ratings, "Rotten Tomatoes"),
       metascore: d.Metascore && d.Metascore !== "N/A" ? Number(d.Metascore) : null,
       poster: d.Poster && d.Poster !== "N/A" ? d.Poster : null,
       plot: d.Plot && d.Plot !== "N/A" ? d.Plot : null,
     };
+    omdbCache.set(ck, result);
+    return result;
   } catch { return null; }
 }
 
@@ -158,8 +167,7 @@ async function tmdbProviders(media, id, country) {
 async function enrichTitle(media, id, raw, country, reason) {
   let imdbID = null;
   try { const ext = await tmdb(`/${media}/${id}/external_ids`, {}); imdbID = ext.imdb_id || null; } catch {}
-  let omdb = imdbID ? await omdbByImdb(imdbID) : null;
-  if (!omdb) omdb = await omdbByTitle(tTitle(raw), tYear(raw), media);
+  const omdb = imdbID ? await omdbByImdb(imdbID) : await omdbByTitle(tTitle(raw), tYear(raw), media);
   const sa = await tmdbProviders(media, id, country);
   let videos = [];
   try {
