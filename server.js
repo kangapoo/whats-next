@@ -310,6 +310,25 @@ app.post("/api/title", async (req, res) => {
   }
 });
 
+// ---------- provider coverage check (are non-Netflix services present in this region's data?) ----------
+app.get("/api/providers-check", async (req, res) => {
+  const country = String(req.query.country || "za").toLowerCase();
+  // Titles strongly tied to each service — if the data is healthy, each should list its home service.
+  const tests = { "Stranger Things": "Netflix", "The Boys": "Prime Video", "Loki": "Disney+", "Ted Lasso": "Apple TV+" };
+  const out = { country: country.toUpperCase(), note: "each title's subscription providers as TMDb/JustWatch reports them", results: {} };
+  for (const t of Object.keys(tests)) {
+    try {
+      const s = await tmdb("/search/multi", { query: t, include_adult: "false" });
+      const found = (s.results || []).find((x) => (x.media_type === "movie" || x.media_type === "tv") && tTitle(x));
+      if (!found) { out.results[t] = "(not found)"; continue; }
+      const wp = await tmdb(`/${found.media_type}/${found.id}/watch/providers`, {});
+      const c = wp.results && wp.results[country.toUpperCase()];
+      out.results[t] = { expected: tests[t], subscription: c && c.flatrate ? c.flatrate.map((p) => p.provider_name) : [] };
+    } catch (e) { out.results[t] = "error: " + e.message; }
+  }
+  res.json(out);
+});
+
 // ---------- diagnostics ----------
 app.get("/api/diag", async (_req, res) => {
   const out = {
